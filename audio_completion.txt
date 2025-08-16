@@ -1,0 +1,165 @@
+
+      gainNodeRef.current = audioContextRef.current.createGain();
+      gainNodeRef.current.gain.value = microphoneGain / 100;
+
+      outputGainRef.current = audioContextRef.current.createGain();
+      outputGainRef.current.gain.value = outputVolume / 100;
+
+      analyserRef.current = audioContextRef.current.createAnalyser();
+      analyserRef.current.fftSize = ultrasonicMode ? 16384 : 4096;
+      analyserRef.current.smoothingTimeConstant = 0.1;
+      analyserRef.current.minDecibels = -90;
+      analyserRef.current.maxDecibels = -10;
+
+      // Create equalizer filters
+      const frequencies = [60, 170, 310, 600, 1000, 3000, 6000, 12000, 20000, 40000];
+      filtersRef.current = frequencies.map(freq => {
+        const filter = audioContextRef.current.createBiquadFilter();
+        filter.type = freq < 100 ? 'lowshelf' : freq > 10000 ? 'highshelf' : 'peaking';
+        filter.frequency.value = freq;
+        filter.Q.value = 1;
+        filter.gain.value = eqBands[freq];
+        return filter;
+      });
+
+      // Connect audio graph
+      microphoneRef.current.connect(gainNodeRef.current);
+
+      // Chain equalizer filters if AI equalizer is enabled
+      if (aiEqualizer) {
+        let currentNode = gainNodeRef.current;
+        filtersRef.current.forEach(filter => {
+          currentNode.connect(filter);
+          currentNode = filter;
+        });
+        currentNode.connect(analyserRef.current);
+        if (isLivePlayback) {
+          currentNode.connect(outputGainRef.current);
+          outputGainRef.current.connect(audioContextRef.current.destination);
+        }
+      } else {
+        gainNodeRef.current.connect(analyserRef.current);
+        if (isLivePlayback) {
+          gainNodeRef.current.connect(outputGainRef.current);
+          outputGainRef.current.connect(audioContextRef.current.destination);
+        }
+      }
+
+      // Start audio analysis loop
+      startAudioAnalysis();
+
+    } catch (error) {
+      console.error('Failed to initialize audio:', error);
+    }
+  };
+
+  // Audio analysis function
+  const startAudioAnalysis = () => {
+    if (!analyserRef.current) return;
+
+    const bufferLength = analyserRef.current.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    const analyze = () => {
+      if (!isDetecting) return;
+
+      analyserRef.current.getByteFrequencyData(dataArray);
+
+      // Calculate audio level
+      const average = dataArray.reduce((sum, value) => sum + value, 0) / bufferLength;
+      setAudioLevel(average);
+
+      // Find peak frequency
+      let maxIndex = 0;
+      let maxValue = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        if (dataArray[i] > maxValue) {
+          maxValue = dataArray[i];
+          maxIndex = i;
+        }
+      }
+
+      const sampleRate = audioContextRef.current.sampleRate;
+      const peakFreq = (maxIndex * sampleRate) / (analyserRef.current.fftSize);
+      setPeakFrequency(peakFreq);
+
+      animationFrameRef.current = requestAnimationFrame(analyze);
+    };
+
+    analyze();
+  };
+
+  // Recording functions
+  const startRecording = async () => {
+    if (!microphoneRef.current) return;
+
+    try {
+      const stream = microphoneRef.current.mediaStream;
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      recordedChunksRef.current = [];
+
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          recordedChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorderRef.current.onstop = () => {
+        const blob = new Blob(recordedChunksRef.current, { type: 'audio/wav' });
+        const url = URL.createObjectURL(blob);
+        setAudioData(prev => [...prev, { url, timestamp: Date.now() }]);
+      };
+
+      mediaRecorderRef.current.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+
+      recordingIntervalRef.current = setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
+
+    } catch (error) {
+      console.error('Failed to start recording:', error);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      clearInterval(recordingIntervalRef.current);
+    }
+  };
+
+  // Control functions
+  const toggleDetection = async () => {
+    if (!isDetecting) {
+      await getMicrophones();
+      await initializeAudio();
+      initializeSensors();
+      setIsDetecting(true);
+    } else {
+      setIsDetecting(false);
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      if (sensorIntervalRef.current) {
+        clearInterval(sensorIntervalRef.current);
+      }
+    }
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      if (sensorIntervalRef.current) {
+        clearInterval(sensorIntervalRef.current);
+      }
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+      }
+    };
+  }, []);
