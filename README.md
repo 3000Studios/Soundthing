@@ -1,8 +1,270 @@
-# Lenovo Legion RF & Sensor Detector
+# 🎙️ Soundthing RF Detector
 
-A desktop-focused, browser-based React app that inspects audio inputs and device sensors to provide real-time frequency analysis, radar-style visuals, system telemetry, and recording. This repository contains a developer-ready scaffold to experiment with multi-microphone capture, ultrasonic analysis, and sensor fusion on a Lenovo Legion or similar Windows laptop.
+A modern React web application for real-time audio frequency analysis, ultrasonic detection, and device sensor monitoring. Built with Vite + React and packaged for Android using Capacitor.
 
-This README finishes the project documentation: what the app does, how to run it, architecture notes, limitations, privacy, and next steps.
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
+![React](https://img.shields.io/badge/React-18.2-61dafb)
+![Android](https://img.shields.io/badge/Android-Ready-green)
+
+---
+
+## ✨ Features
+
+### 🎵 Audio Analysis
+- **Real-time frequency spectrum visualization** with 150+ frequency bands
+- **Peak frequency detection** with Hz precision
+- **Ultrasonic mode** supporting up to 192kHz sample rates (hardware dependent)
+- **Live audio monitoring** with adjustable gain and output volume
+- **Audio recording** with WebM export
+- **Radar-style visualization** for RF frequency patterns
+
+### 📱 Sensor Monitoring
+- **Accelerometer** - X, Y, Z axis and magnitude
+- **Gyroscope** - Rotation rates with magnitude
+- **Magnetometer** - Magnetic field detection (simulated)
+- **Device orientation** tracking
+- Real-time sensor data updates
+
+### 💻 System Telemetry
+- CPU temperature and usage monitoring (simulated)
+- GPU metrics and memory usage (simulated)
+- Battery level and charging status
+- System performance metrics
+
+### 📡 Network Information
+- Wi-Fi signal strength monitoring (simulated)
+- Bluetooth device detection (simulated)
+- Cellular signal information (simulated)
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- **Node.js** 16+ (18+ recommended)
+- **npm** or **yarn**
+
+### Web Development
+
+```bash
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+
+# Build for production
+npm run build
+
+# Preview production build
+npm run preview
+```
+
+The app will be available at `http://localhost:5173`
+
+### Android Build
+
+See [BUILD.md](BUILD.md) for detailed Android build instructions.
+
+**Quick Android setup:**
+```bash
+# Install dependencies
+npm install
+
+# Build the app
+npm run build
+
+# Open in Android Studio
+npm run android
+```
+
+---
+
+## 📋 Requirements
+
+### Browser Support
+- **Chrome/Edge** 90+ (recommended for best Web Audio API support)
+- **Firefox** 88+
+- **Safari** 14+
+
+### Android
+- Android 7.0 (API 24) or higher
+- Microphone hardware required
+- Recommended: High-quality audio hardware for ultrasonic detection
+
+---
+
+## 🎯 Usage
+
+### Audio Tab
+1. **Select Microphone** - Choose your input device from the dropdown
+2. **Adjust Mic Boost** - Increase gain for quiet signals (0-500%)
+3. **Set Output Volume** - Control monitor volume (0-100%)
+4. **Toggle Ultrasonic Mode** - Switch between 48kHz and 192kHz sampling
+5. **Enable Live Monitor** - Hear the microphone input in real-time
+6. **Start Detection** - Begin analyzing audio
+7. **Record Audio** - Capture and export audio as WebM
+
+### Sensors Tab
+- View real-time accelerometer, gyroscope, and magnetometer data
+- Monitor device orientation (alpha, beta, gamma)
+- Track sensor magnitude and individual axis values
+
+### System Tab
+- Monitor CPU/GPU temperatures and usage
+- View memory statistics
+- Check battery level and charging status
+- Review system performance metrics
+
+### Network Tab
+- Monitor Wi-Fi signal strength
+- View Bluetooth device count
+- Check cellular signal information
+
+---
+
+## 🏗️ Architecture
+
+### Tech Stack
+- **Framework**: React 18.2
+- **Build Tool**: Vite 4.4
+- **Styling**: TailwindCSS + Custom CSS
+- **Icons**: Lucide React
+- **Mobile**: Capacitor 5.4
+
+### Project Structure
+```
+Soundthing/
+├── src/
+│   ├── components/      # React components
+│   │   ├── AudioTab.jsx
+│   │   ├── SensorsTab.jsx
+│   │   ├── SystemTab.jsx
+│   │   └── NetworkTab.jsx
+│   ├── utils/          # Utility functions
+│   ├── App.jsx         # Main application
+│   ├── main.jsx        # Entry point
+│   └── styles.css      # Global styles
+├── android/            # Android/Capacitor project
+├── dist/              # Production build
+├── public/            # Static assets
+└── capacitor.config.json
+```
+
+### Key APIs Used
+- **Web Audio API** - AudioContext, AnalyserNode, MediaRecorder
+- **Device Motion API** - DeviceMotionEvent, DeviceOrientationEvent
+- **Media Devices API** - getUserMedia, enumerateDevices
+- **Canvas API** - Radar visualization
+
+---
+
+## 🔒 Permissions
+
+The app requires the following permissions:
+
+### Browser
+- **Microphone** - Required for audio capture and analysis
+
+### Android
+- **RECORD_AUDIO** - Audio capture
+- **MODIFY_AUDIO_SETTINGS** - Audio configuration
+- **WRITE_EXTERNAL_STORAGE** - Save recordings
+- **READ_EXTERNAL_STORAGE** - Access recordings
+
+All permissions are requested at runtime with user consent.
+
+---
+
+## ⚠️ Limitations
+
+- **Ultrasonic detection** depends on hardware capabilities and drivers
+- **System metrics** (CPU/GPU temps) are simulated in browser environment
+  - For real hardware monitoring, deploy with Electron + native module
+- **High sample rates** (192kHz) require:
+  - Professional audio interface
+  - Appropriate driver configuration
+  - Browser/OS support
+- **Sensor data** availability varies by device and browser
+
+---
+
+## 🛠️ Development
+
+### Available Scripts
+
+```bash
+npm run dev       # Start dev server
+npm run build     # Build for production
+npm run preview   # Preview production build
+npm run android   # Open Android Studio
+```
+
+### Building for Production
+
+1. Update version in `package.json`
+2. Run `npm run build`
+3. Test with `npm run preview`
+4. For Android: Run `npm run android` and build in Android Studio
+
+---
+
+## 📦 Deployment
+
+### Web Deployment
+Deploy the `dist` folder to any static hosting service:
+- Netlify
+- Vercel  
+- GitHub Pages
+- Firebase Hosting
+
+### Android Deployment
+1. Build a signed APK/AAB in Android Studio
+2. Upload to Google Play Console
+3. Or distribute the APK directly
+
+See [BUILD.md](BUILD.md) for detailed instructions.
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
+
+---
+
+## 📄 License
+
+This project is open source and available under the MIT License.
+
+---
+
+## 🆘 Support & Issues
+
+- **Documentation**: See BUILD.md for Android setup
+- **Issues**: Open an issue on GitHub
+- **Questions**: Check existing issues or create a new one
+
+---
+
+## 🎉 Acknowledgments
+
+Built with modern web technologies:
+- React for UI components
+- Vite for blazing-fast builds
+- Capacitor for native mobile packaging
+- Lucide for beautiful icons
+- TailwindCSS for styling
+
+---
+
+**Made with ❤️ for audio enthusiasts and RF detection**
+
 
 ---
 
