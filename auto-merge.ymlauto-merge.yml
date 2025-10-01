@@ -1,0 +1,44 @@
+# .github/workflows/auto-merge.yml
+
+name: 'Auto Merge Copilot PRs'
+
+on:
+  # Triggers on pull request events when checks are complete or a label is added
+  pull_request_target:
+    types: [labeled, unlabeled, synchronize, opened, reopened]
+  status:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto_merge:
+    runs-on: ubuntu-latest
+    # This job only runs if the PR is created by a bot (like Copilot)
+    # OR if a trusted user adds the 'auto-merge' label.
+    if: |
+      (github.event_name == 'pull_request_target' && contains(toJson(github.event.pull_request.labels.*.name), 'auto-merge')) ||
+      (github.event_name == 'status' && github.event.commit.author.name == 'github-actions[bot]')
+
+    steps:
+      - name: Enable Auto-Merge and Approve
+        uses: peter-evans/enable-pull-request-automerge@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          pull-request-number: ${{ github.event.pull_request.number || github.event.context }}
+          # Use 'squash' or 'rebase' depending on your repo settings
+          merge-method: squash
+
+      # Optional: Add a comment to confirm auto-merge is enabled
+      - name: Post Auto-Merge Confirmation
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '✅ Auto-merge is enabled. This PR will merge once all required status checks pass.'
+            })
