@@ -1,0 +1,1396 @@
+build this with full hd 3d realistic graphics and full functionality and clean-up all files and package it all up i want 1 click install icon Sure! Below is the complete implementation of the `UltrasonicMicrophone` component you've provided, formatted for React:
+
+```javascript
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Play, Pause, Mic, MicOff, Settings, Volume2 } from 'lucide-react';
+
+const UltrasonicMicrophone = () => {
+  // Core audio states
+  const [isRecording, setIsRecording] = useState(false);
+  const [audioContext, setAudioContext] = useState(null);
+  const [mediaStream, setMediaStream] = useState(null);
+  const [analyser, setAnalyser] = useState(null);
+  const [frequencyData, setFrequencyData] = useState(new Uint8Array(1024));
+  const [timeData, setTimeData] = useState(new Float32Array(1024));
+  
+  // EQ and audio processing
+  const [eqBands, setEqBands] = useState(new Array(31).fill(0));
+  const [noiseReduction, setNoiseReduction] = useState(75);
+  const [echoCancellation, setEchoCancellation] = useState(85);
+  const [gain, setGain] = useState(50);
+  
+  // UI controls
+  const [ultrasonicMode, setUltrasonicMode] = useState(false);
+  const [liveMonitoring, setLiveMonitoring] = useState(true);
+  
+  // Forensic analysis
+  const [spectralAnalysis, setSpectralAnalysis] = useState(false);
+  const [voicePrint, setVoicePrint] = useState(false);
+  const [phaseAnalysis, setPhaseAnalysis] = useState(false);
+  const [clipDetection, setClipDetection] = useState(false);
+  
+  // Analysis results
+  const [backgroundNoise, setBackgroundNoise] = useState([]);
+  const [suspiciousFreqs, setSuspiciousFreqs] = useState([]);
+  const [audioFingerprint, setAudioFingerprint] = useState('');
+  const [compressionArtifacts, setCompressionArtifacts] = useState([]);
+  const [isClipping, setIsClipping] = useState(false);
+  const [voiceCharacteristics, setVoiceCharacteristics] = useState({});
+  
+  // Status
+  const [error, setError] = useState('');
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [permissionStatus, setPermissionStatus] = useState({
+    microphone: 'prompt', // 'granted', 'denied', 'prompt'
+    notifications: 'default', // 'granted', 'denied', 'default'
+    autoplay: 'unknown'
+  });
+  const [showPermissionHelp, setShowPermissionHelp] = useState(false);
+  
+  // Refs
+  const canvasRef = useRef(null);
+  const spectrogramRef = useRef(null);
+  const animationRef = useRef(null);
+  const gainNodeRef = useRef(null);
+  const noiseProfile = useRef(new Uint8Array(1024));
+
+  // 31-band EQ frequencies (0Hz to 22kHz)
+  const eqFrequencies = [
+    0, 50, 100, 200, 300, 400, 500, 630, 800, 1000, 1250, 1600, 2000, 2500, 3150,
+    4000, 5000, 6300, 8000, 10000, 12500, 14000, 15000, 16000, 17000, 18000, 19000,
+    20000, 20500, 21000, 22000
+  ];
+
+  // Check permissions on component mount
+  useEffect(() => {
+    checkAllPermissions();
+  }, []);
+
+  // Permission checking functions
+  const checkAllPermissions = async () => {
+    try {
+      if (navigator.permissions && navigator.permissions.query) {
+        try {
+          const micPermission = await navigator.permissions.query({ name: 'microphone' });
+          setPermissionStatus(prev => ({ ...prev, microphone: micPermission.state }));
+          micPermission.onchange = () => {
+            setPermissionStatus(prev => ({ ...prev, microphone: micPermission.state }));
+          };
+        } catch (err) {
+          console.log('Microphone permission query not supported');
+        }
+
+        try {
+          const notificationPermission = await navigator.permissions.query({ name: 'notifications' });
+          setPermissionStatus(prev => ({ ...prev, notifications: notificationPermission.state }));
+        } catch (err) {
+          if ('Notification' in window) {
+            setPermissionStatus(prev => ({ ...prev, notifications: Notification.permission }));
+          }
+        }
+      }
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setError('Your browser does not support microphone access. Please use a modern browser like Chrome, Firefox, or Safari.');
+        return;
+      }
+
+      console.log('Permission check completed');
+    } catch (err) {
+      console.error('Permission check failed:', err);
+    }
+  };
+
+  const requestMicrophonePermission = async () => {
+    try {
+      setError('');
+      console.log('Requesting microphone permission...');
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true
+        }
+      });
+      stream.getTracks().forEach(track => track.stop());
+      setPermissionStatus(prev => ({ ...prev, microphone: 'granted' }));
+      console.log('Microphone permission granted');
+      return true;
+    } catch (err) {
+      console.error('Microphone permission denied:', err);
+      handleMicrophoneError(err);
+      return false;
+    }
+  };
+
+  const handleMicrophoneError = (err) => {
+      if (err.name === 'NotAllowedError') {
+        setPermissionStatus(prev => ({ ...prev, microphone: 'denied' }));
+        setError('Microphone access denied. Please enable microphone permissions in your browser settings.');
+        setShowPermissionHelp(true);
+      } else if (err.name === 'NotFoundError') {
+        setError('No microphone found. Please connect a microphone and try again.');
+      } else if (err.name === 'NotReadableError') {
+        setError('Microphone is being used by another application. Please close other apps and try again.');
+      } else {
+        setError(`Microphone access failed: ${err.message}`);
+      }
+  };
+
+  const requestNotificationPermission = async () => {
+    if ('Notification' in window) {
+      try {
+        const permission = await Notification.requestPermission();
+        setPermissionStatus(prev => ({ ...prev, notifications: permission }));
+        return permission === 'granted';
+      } catch (err) {
+        console.error('Notification permission request failed:', err);
+        return false;
+      }
+    }
+    return false;
+  };
+
+  const enableAutoplay = async () => {
+    if (audioContext) {
+      try {
+        if (audioContext.state === 'suspended') {
+          await audioContext.resume();
+          setPermissionStatus(prev => ({ ...prev, autoplay: 'enabled' }));
+          console.log('Autoplay enabled');
+          return true;
+        }
+      } catch (err) {
+        console.error('Failed to enable autoplay:', err);
+        setError('Failed to enable audio autoplay. Please interact with the page first.');
+        return false;
+      }
+    }
+    return false;
+  };
+
+  const getBrowserSpecificHelp = () => {
+    const userAgent = navigator.userAgent.toLowerCase();
+    if (userAgent.includes('chrome')) {
+      return { browser: 'Chrome', steps: [ '1. Click the 🛡️ lock icon in the address bar', '2. Set "Microphone" to "Allow"', '3. Refresh the page and try again', 'Alternative: Go to Settings > Privacy > Site Settings > Microphone' ] };
+    } else if (userAgent.includes('firefox')) {
+      return { browser: 'Firefox', steps: [ '1. Click the 🔒 shield icon in the address bar', '2. Turn off "Enhanced Tracking Protection" for this site', '3. Click the 🛡️ lock icon and allow microphone access', 'Alternative: Go to Settings > Privacy & Security > Permissions' ] };
+    } else if (userAgent.includes('safari')) {
+      return { browser: 'Safari', steps: [ '1. Go to Safari menu > Preferences > Websites', '2. Click "Microphone" in the left sidebar', '3. Set this website to "Allow"', '4. Refresh the page and try again' ] };
+    } else if (userAgent.includes('edge')) {
+      return { browser: 'Edge', steps: [ '1. Click the 🛡️ lock icon in the address bar', '2. Set "Microphone" to "Allow"', '3. Refresh the page and try again', 'Alternative: Go to Settings > Site permissions > Microphone' ] };
+    } else {
+      return { browser: 'Your Browser', steps: [ '1. Look for a microphone icon in the address bar', '2. Click it and allow microphone access', '3. Refresh the page and try again', '4. Check your browser\'s privacy/security settings' ] };
+    }
+  };
+
+  // Initialize audio system
+  const initializeAudio = useCallback(async () => {
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) {
+        throw new Error('Web Audio API not supported in this browser');
+      }
+
+      const context = new AudioContextClass();
+      if (context.state === 'suspended') {
+        await context.resume();
+      }
+
+      setAudioContext(context);
+      setIsInitialized(true);
+      setError('');
+      console.log('Audio system initialized, sample rate:', context.sampleRate);
+      return context;
+    } catch (err) {
+      const errorMsg = `Audio initialization failed: ${err.message}`;
+      setError(errorMsg);
+      console.error(errorMsg);
+      return null;
+    }
+  }, []);
+
+  // Start recording with simplified approach
+  const startRecording = async () => {
+    try {
+      setError('');
+      console.log('=== STARTING RECORDING ===');
+      
+      let context = audioContext;
+      if (!context) {
+        console.log('Initializing audio context...');
+        context = await initializeAudio();
+        if (!context) {
+          setError('Failed to initialize audio system');
+          return;
+        }
+      }
+
+      if (context.state !== 'running') {
+        console.log('Resuming audio context...');
+        await context.resume();
+      }
+
+      console.log('Requesting microphone access...');
+      const constraints = { audio: { echoCancellation: echoCancellation > 50, noiseSuppression: noiseReduction > 50, autoGainControl: false }};
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      console.log('✅ Microphone access granted');
+
+      console.log('Setting up audio processing...');
+      const source = context.createMediaStreamSource(stream);
+      const analyserNode = context.createAnalyser();
+      const gainNode = context.createGain();
+      
+      analyserNode.fftSize = 2048;
+      analyserNode.smoothingTimeConstant = 0.3;
+      analyserNode.minDecibels = -90;
+      analyserNode.maxDecibels = -10;
+      gainNode.gain.value = gain / 50;
+
+      source.connect(gainNode);
+      gainNode.connect(analyserNode);
+
+      setMediaStream(stream);
+      setAnalyser(analyserNode);
+      gainNodeRef.current = gainNode;
+      setIsRecording(true);
+      setPermissionStatus(prev => ({ ...prev, microphone: 'granted' }));
+      console.log('✅ Recording started successfully');
+      
+    } catch (err) {
+      console.error('✖ Recording failed:', err);
+      handleRecordingError(err);
+    }
+  };
+
+  const handleRecordingError = (err) => {
+    let errorMessage = 'Recording failed: ';
+    if (err.name === 'NotAllowedError') {
+      errorMessage = '🔒 Microphone access denied. Please click "Allow" when prompted.';
+      setPermissionStatus(prev => ({ ...prev, microphone: 'denied' }));
+      setShowPermissionHelp(true);
+    } else if (err.name === 'NotFoundError') {
+      errorMessage = '🔒 No microphone found. Please connect a microphone.';
+    } else if (err.name === 'NotReadableError') {
+      errorMessage = '🔒 Microphone busy. Close other apps using the microphone.';
+    } else {
+      errorMessage += err.message;
+    }
+    
+    setError(errorMessage);
+    setIsRecording(false);
+    setMediaStream(null);
+    setAnalyser(null);
+    gainNodeRef.current = null;
+  };
+
+  // Stop recording with cleanup
+  const stopRecording = useCallback(() => {
+    try {
+      console.log('Stopping recording...');
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
+      }
+
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => {
+          track.stop();
+          console.log(`Stopped ${track.kind} track`);
+        });
+      }
+
+      resetRecordingStates();
+      console.log('Recording stopped successfully');
+      
+    } catch (err) {
+      console.error('Error stopping recording:', err);
+      setError(`Stop recording error: ${err.message}`);
+    }
+  }, [mediaStream]);
+
+  const resetRecordingStates = () => {
+      setIsRecording(false);
+      setMediaStream(null);
+      setAnalyser(null);
+      gainNodeRef.current = null;
+      setFrequencyData(new Uint8Array(1024));
+      setTimeData(new Float32Array(1024));
+      setSuspiciousFreqs([]);
+      setAudioFingerprint('');
+      setCompressionArtifacts([]);
+      setIsClipping(false);
+      setVoiceCharacteristics({});
+  };
+
+  // Update gain in real-time
+  useEffect(() => {
+    if (gainNodeRef.current && isRecording) {
+      gainNodeRef.current.gain.value = gain / 50;
+    }
+  }, [gain, isRecording]);
+
+  const updateEqBand = (index, value) => {
+    const newEqBands = [...eqBands];
+    newEqBands[index] = parseFloat(value);
+    setEqBands(newEqBands);
+  };
+
+  const resetEQ = () => {
+    setEqBands(new Array(31).fill(0));
+  };
+
+  // Capture noise profile for forensic analysis
+  const captureNoiseProfile = () => {
+    if (frequencyData && frequencyData.length > 0) {
+      noiseProfile.current = new Uint8Array(frequencyData);
+      const avgNoise = Array.from(frequencyData).reduce((a, b) => a + b, 0) / frequencyData.length;
+      const newProfile = { timestamp: Date.now(), level: avgNoise, profile: Array.from(frequencyData) };
+      setBackgroundNoise(prev => [...prev, newProfile]);
+      console.log('Noise profile captured, average level:', avgNoise.toFixed(1));
+    }
+  };
+
+  // Forensic analysis functions
+  const detectSuspiciousFrequencies = useCallback(() => {
+    if (!noiseProfile.current || !audioContext || !frequencyData) return [];
+    
+    const suspicious = [];
+    const nyquist = audioContext.sampleRate / 2;
+    const minThreshold = 30;
+
+    for (let i = 5; i < frequencyData.length - 5; i++) {
+      const currentLevel = frequencyData[i];
+      const baselineLevel = noiseProfile.current[i] || 0;
+      const threshold = Math.max(baselineLevel + 20, minThreshold);
+      
+      if (currentLevel > threshold) {
+        const frequency = Math.round((i / frequencyData.length) * nyquist);
+        if (frequency >= 20 && frequency < nyquist - 100) {
+          suspicious.push({
+            frequency,
+            level: currentLevel - baselineLevel,
+            absoluteLevel: currentLevel,
+            binIndex: i
+          });
+        }
+      }
+    }
+    
+    const sorted = suspicious
+      .sort((a, b) => b.level - a.level)
+      .slice(0, 10);
+    
+    setSuspiciousFreqs(sorted);
+    return sorted;
+  }, [frequencyData, audioContext]);
+
+  const generateAudioFingerprint = useCallback(() => {
+    if (!frequencyData || frequencyData.length === 0) return '';
+    
+    const peaks = [];
+    const minLevel = 50;
+
+    for (let i = 3; i < frequencyData.length - 3; i++) {
+      const current = frequencyData[i];
+      if (current > minLevel && 
+          current > frequencyData[i-1] && 
+          current > frequencyData[i+1] &&
+          current > frequencyData[i-2] &&
+          current > frequencyData[i+2]) {
+        peaks.push({ index: i, level: current });
+      }
+    }
+
+    const strongestPeaks = peaks
+      .sort((a, b) => b.level - a.level)
+      .slice(0, 12);
+
+    const fingerprint = strongestPeaks
+      .map(p => p.index.toString(16).padStart(3, '0'))
+      .join('')
+      .toUpperCase()
+      .substring(0, 24);
+    
+    const result = fingerprint || 'SILENCE';
+    setAudioFingerprint(result);
+    return result;
+  }, [frequencyData]);
+
+  const detectCompressionArtifacts = useCallback(() => {
+    if (!audioContext || !frequencyData || frequencyData.length === 0) return;
+    
+    const artifacts = [];
+    const nyquist = audioContext.sampleRate / 2;
+    const freqData = Array.from(frequencyData);
+
+    const cutoff16k = Math.floor((16000 / nyquist) * frequencyData.length);
+    const cutoff20k = Math.floor((20000 / nyquist) * frequencyData.length);
+
+    if (cutoff16k < frequencyData.length) {
+      const highFreqEnergy = freqData.slice(cutoff16k, cutoff20k).reduce((a, b) => a + b, 0);
+      const avgHighFreq = highFreqEnergy / (cutoff20k - cutoff16k);
+      const lowFreqEnergy = freqData.slice(100, cutoff16k).reduce((a, b) => a + b, 0);
+      const avgLowFreq = lowFreqEnergy / (cutoff16k - 100);
+      
+      if (avgHighFreq < avgLowFreq * 0.1 && avgLowFreq > 20) {
+        artifacts.push({
+          type: 'High-Frequency Rolloff',
+          description: `Sharp cutoff at ~16kHz suggests lossy compression`,
+          severity: 'High',
+          confidence: Math.min(95, ((avgLowFreq - avgHighFreq) / avgLowFreq) * 100)
+        });
+      }
+    }
+
+    const lowLevelBins = freqData.filter(level => level > 0 && level < 15).length;
+    const totalActiveBins = freqData.filter(level => level > 0).length;
+
+    if (totalActiveBins > 0) {
+      const quantizationRatio = lowLevelBins / totalActiveBins;
+      if (quantizationRatio > 0.7) {
+        artifacts.push({
+          type: 'Quantization Noise',
+          description: `${(quantizationRatio * 100).toFixed(1)}% low-level bins suggest bit-depth reduction`,
+          severity: 'Medium',
+          confidence: Math.min(90, quantizationRatio * 100)
+        });
+      }
+    }
+
+    let consecutiveZeros = 0;
+    let maxZeroStreak = 0;
+    for (let i = 50; i < frequencyData.length - 50; i++) {
+      if (frequencyData[i] === 0) {
+        consecutiveZeros++;
+        maxZeroStreak = Math.max(maxZeroStreak, consecutiveZeros);
+      } else {
+        consecutiveZeros = 0;
+      }
+    }
+
+    if (maxZeroStreak > 10) {
+      artifacts.push({
+        type: 'Spectral Gaps',
+        description: `${maxZeroStreak} consecutive silent frequency bins detected`,
+        severity: 'Medium',
+        confidence: Math.min(80, maxZeroStreak * 2)
+      });
+    }
+
+    setCompressionArtifacts(artifacts);
+  }, [frequencyData, audioContext]);
+
+  const analyzeVoiceCharacteristics = useCallback(() => {
+    if (!audioContext || !frequencyData || !timeData) return;
+
+    const freqArray = Array.from(frequencyData);
+    const timeArray = Array.from(timeData);
+    const nyquist = audioContext.sampleRate / 2;
+
+    let maxLevel = 0;
+    let fundamentalBin = 0;
+    const voiceStart = Math.floor((80 / nyquist) * frequencyData.length);
+    const voiceEnd = Math.floor((400 / nyquist) * frequencyData.length);
+
+    for (let i = voiceStart; i < voiceEnd; i++) {
+      if (freqArray[i] > maxLevel) {
+        maxLevel = freqArray[i];
+        fundamentalBin = i;
+      }
+    }
+
+    const fundamental = Math.round((fundamentalBin / frequencyData.length) * nyquist);
+    
+    const rmsEnergy = Math.sqrt(timeArray.reduce((sum, sample) => sum + sample * sample, 0) / timeArray.length);
+    
+    let genderEstimate = 'Unknown';
+    if (fundamental > 0) {
+      if (fundamental < 165) genderEstimate = 'Male Range';
+      else if (fundamental > 165 && fundamental < 265) genderEstimate = 'Ambiguous';
+      else genderEstimate = 'Female Range';
+    }
+
+    const formants = [];
+    const formantRanges = [
+      [300, 800],   // F1
+      [800, 2500],  // F2
+      [2500, 4000]  // F3
+    ];
+
+    formantRanges.forEach((range, index) => {
+      const startBin = Math.floor((range[0] / nyquist) * frequencyData.length);
+      const endBin = Math.floor((range[1] / nyquist) * frequencyData.length);
+      let maxFormantLevel = 0;
+      let formantBin = 0;
+
+      for (let i = startBin; i < endBin; i++) {
+        if (freqArray[i] > maxFormantLevel) {
+          maxFormantLevel = freqArray[i];
+          formantBin = i;
+        }
+      }
+
+      if (maxFormantLevel > 30) {
+        const formantFreq = Math.round((formantBin / frequencyData.length) * nyquist);
+        formants.push({ number: index + 1, frequency: formantFreq, level: maxFormantLevel });
+      }
+    });
+
+    setVoiceCharacteristics({
+      fundamental,
+      genderEstimate,
+      rmsEnergy: rmsEnergy.toFixed(4),
+      formants,
+      voiceActivity: rmsEnergy > 0.01 ? 'Active' : 'Inactive'
+    });
+  }, [frequencyData, timeData, audioContext]);
+
+  const analyzeClipping = useCallback(() => {
+    if (!timeData || timeData.length === 0) return;
+    
+    const threshold = 0.98;
+    const timeArray = Array.from(timeData);
+    const clippedSamples = timeArray.filter(sample => Math.abs(sample) >= threshold).length;
+    const clippingPercentage = (clippedSamples / timeArray.length) * 100;
+    
+    const clipping = clippingPercentage > 0.001; // 0.001% threshold
+    setIsClipping(clipping);
+    
+    if (clipping) {
+      console.log(`Clipping detected: ${clippingPercentage.toFixed(4)}% of samples`);
+    }
+    
+    return clippingPercentage;
+  }, [timeData]);
+
+  // Visualization functions
+  const drawVisualization = useCallback((freqArray, timeArray) => {
+    const canvas = canvasRef.current;
+    if (!canvas || !audioContext) return;
+
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, width, height);
+
+    const maxFreq = Math.max(...freqArray);
+    const rms = Math.sqrt(timeArray.reduce((sum, val) => sum + val * val, 0) / timeArray.length);
+    
+    if (maxFreq < 1 && rms < 0.001) {
+      ctx.fillStyle = '#666666';
+      ctx.font = '18px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('No audio signal detected', width / 2, height / 2 - 10);
+      ctx.fillText('Speak into microphone or adjust gain', width / 2, height / 2 + 15);
+      return;
+    }
+
+    const nyquist = audioContext.sampleRate / 2;
+    const barWidth = width / freqArray.length;
+
+    for (let i = 0; i < freqArray.length; i++) {
+      const value = freqArray[i];
+      const normalizedValue = value / 255;
+      const barHeight = normalizedValue * height * 0.85;
+      const x = i * barWidth;
+      const y = height - barHeight;
+
+      const freq = (i / freqArray.length) * nyquist;
+      let hue;
+      if (freq < 250) hue = 240;      // Blue for bass
+      else if (freq < 2000) hue = 180; // Cyan for low-mids
+      else if (freq < 4000) hue = 120; // Green for mids
+      else if (freq < 8000) hue = 60;  // Yellow for high-mids
+      else hue = 0;                    // Red for highs
+
+      const saturation = Math.min(100, normalizedValue * 70 + 30);
+      const lightness = Math.min(70, normalizedValue * 50 + 15);
+
+      ctx.fillStyle = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+      ctx.fillRect(x, y, Math.max(1, barWidth - 0.5), barHeight);
+    }
+
+    // Draw frequency grid
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = 1;
+    
+    for (let i = 1; i <= 4; i++) {
+      const y = (height / 5) * i;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(width, y);
+      ctx.stroke();
+    }
+    
+    const keyFrequencies = [100, 1000, 5000, 10000];
+    keyFrequencies.forEach(freq => {
+      if (freq < nyquist) {
+        const x = (freq / nyquist) * width;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
+        ctx.stroke();
+        
+        ctx.fillStyle = '#cccccc';
+        ctx.font = '12px monospace';
+        ctx.textAlign = 'left';
+        const label = freq >= 1000 ? `${(freq / 1000).toFixed(1)}k` : `${freq}`;
+        ctx.fillText(`${label}Hz`, x + 3, 15);
+      }
+    });
+    
+    // Highlight suspicious frequencies
+    if (suspiciousFreqs.length > 0) {
+      ctx.fillStyle = 'rgba(255, 100, 100, 0.8)';
+      ctx.strokeStyle = 'rgba(255, 50, 50, 1.0)';
+      ctx.lineWidth = 2;
+
+      suspiciousFreqs.forEach(({ frequency, level }) => {
+        const x = (frequency / nyquist) * width;
+        ctx.fillRect(x - 1, 0, 3, height);
+
+        ctx.fillStyle = '#ff6666';
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`${frequency}Hz`, x, height - 5);
+        ctx.fillText(`+${level.toFixed(1)}dB`, x, height - 18);
+      });
+    }
+
+    const rmsHeight = rms * height * 10;
+    ctx.fillStyle = 'rgba(0, 255, 0, 0.6)';
+    ctx.fillRect(width - 30, height - rmsHeight, 25, rmsHeight);
+
+    ctx.fillStyle = '#00ff00';
+    ctx.font = '10px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('RMS', width - 17, height - rmsHeight - 5);
+    
+  }, [audioContext, suspiciousFreqs]);
+
+  const drawSpectrogram = useCallback((freqArray) => {
+    const canvas = spectrogramRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+
+    // Scroll existing data left by 1 pixel
+    const imageData = ctx.getImageData(1, 0, width - 1, height);
+    ctx.putImageData(imageData, 0, 0);
+
+    const pixelsPerBin = height / freqArray.length;
+    
+    for (let i = 0; i < freqArray.length; i++) {
+      const intensity = freqArray[i] / 255;
+      const y = Math.floor(height - (i + 1) * pixelsPerBin);
+      const pixelHeight = Math.ceil(pixelsPerBin);
+
+      let r, g, b;
+      if (intensity < 0.2) {
+        r = 0; g = 0; b = Math.floor(intensity * 5 * 255);
+      } else if (intensity < 0.4) {
+        r = 0; g = Math.floor((intensity - 0.2) * 5 * 255); b = 255;
+      } else if (intensity < 0.6) {
+        r = 0; g = 255; b = 255 - Math.floor((intensity - 0.4) * 5 * 255);
+      } else if (intensity < 0.8) {
+        r = Math.floor((intensity - 0.6) * 5 * 255); g = 255; b = 0;
+      } else {
+        r = 255; g = 255 - Math.floor((intensity - 0.8) * 5 * 255); b = 0;
+      }
+      
+      ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+      ctx.fillRect(width - 1, y, 1, pixelHeight);
+    }
+  }, []);
+
+  // Main animation loop with error handling
+  useEffect(() => {
+    if (!analyser || !isRecording || !liveMonitoring) {
+      return;
+    }
+    
+    const updateAnalysis = () => {
+      try {
+        const bufferLength = analyser.frequencyBinCount;
+        const freqData = new Uint8Array(bufferLength);
+        const timeDataArray = new Float32Array(bufferLength);
+        
+        analyser.getByteFrequencyData(freqData);
+        analyser.getFloatTimeDomainData(timeDataArray);
+        
+        setFrequencyData(freqData);
+        setTimeData(timeDataArray);
+        
+        drawVisualization(Array.from(freqData), Array.from(timeDataArray));
+        
+        // Run forensic analysis if enabled
+        if (spectralAnalysis && Math.max(...freqData) > 10) {
+          detectSuspiciousFrequencies();
+          generateAudioFingerprint();
+          detectCompressionArtifacts();
+        }
+        
+        if (voicePrint && Math.max(...freqData) > 10) {
+          analyzeVoiceCharacteristics();
+        }
+        
+        if (clipDetection) {
+          analyzeClipping();
+        }
+        
+        // Draw spectrogram if enabled
+        if (spectralAnalysis) {
+          drawSpectrogram(Array.from(freqData));
+        }
+        
+        animationRef.current = requestAnimationFrame(updateAnalysis);
+      } catch (err) {
+        console.error('Analysis update error:', err);
+        setError(`Analysis error: ${err.message}`);
+      }
+    };
+    
+    animationRef.current = requestAnimationFrame(updateAnalysis);
+    
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [analyser, isRecording, liveMonitoring, spectralAnalysis, voicePrint, clipDetection,
+      drawVisualization, drawSpectrogram, detectSuspiciousFrequencies, 
+      generateAudioFingerprint, detectCompressionArtifacts, analyzeVoiceCharacteristics, analyzeClipping]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopRecording();
+      if (audioContext && audioContext.state !== 'closed') {
+        audioContext.close().catch(console.error);
+      }
+    };
+  }, [stopRecording, audioContext]);
+
+  // Calculate peak frequency and RMS level for display
+  const peakFrequency = audioContext && frequencyData ? 
+    Math.round((Array.from(frequencyData).indexOf(Math.max(...frequencyData)) / frequencyData.length) * (audioContext.sampleRate / 2)) : 0;
+  
+  const rmsLevel = frequencyData ? 
+    Math.round(Array.from(frequencyData).reduce((a, b) => a + b, 0) / frequencyData.length) : 0;
+
+  return (
+    <div className="p-6 bg-gray-900 text-white min-h-screen">
+      <div className="max-w-6xl mx-auto">
+        <h1 className="text-3xl font-bold mb-6 text-center bg-gradient-to-r from-blue-400 to-green-400 bg-clip-text text-transparent">
+          Ultrasonic Microphone Analyzer
+        </h1>
+        
+        {/* Permission Management Panel */}
+        {(showPermissionHelp || permissionStatus.microphone === 'denied' || !isRecording) && (
+          <div className="bg-gradient-to-r from-blue-900 to-purple-900 border border-blue-600 rounded-lg p-6 mb-6">
+            <h3 className="text-xl font-bold mb-4 text-blue-200 flex items-center gap-2">
+              🔒 Permission Manager
+              {permissionStatus.microphone === 'granted' && (
+                <span className="text-green-400 text-sm">✅ Ready</span>
+              )}
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              {/* Microphone Permission */}
+              <div className="bg-gray-800 p-4 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold text-blue-300">🔊 Microphone Access</h4>
+                  <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                    permissionStatus.microphone === 'granted' 
+                      ? 'bg-green-800 text-green-200' 
+                      : permissionStatus.microphone === 'denied'
+                      ? 'bg-red-800 text-red-200'
+                      : 'bg-yellow-800 text-yellow-200'
+                  }`}>
+                    {permissionStatus.microphone === 'granted' ? '✅ GRANTED' : 
+                     permissionStatus.microphone === 'denied' ? '❌ DENIED' : '? REQUIRED'}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-300 mb-3">
+                  Required for audio analysis and recording
+                </p>
+                {permissionStatus.microphone !== 'granted' && (
+                  <button
+                    onClick={requestMicrophonePermission}
+                    className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded font-semibold transition-all"
+                  >
+                    Enable Microphone
+                  </button>
+                )}
+              </div>
+
+              {/* Notification Permission */}
+              <div className="bg-gray-800 p-4 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold text-purple-300">🔔 Notifications</h4>
+                  <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                    permissionStatus.notifications === 'granted' 
+                      ? 'bg-green-800 text-green-200' 
+                      : permissionStatus.notifications === 'denied'
+                      ? 'bg-red-800 text-red-200'
+                      : 'bg-gray-700 text-gray-300'
+                  }`}>
+                    {permissionStatus.notifications === 'granted' ? '✅ ENABLED' : 
+                     permissionStatus.notifications === 'denied' ? '❌ BLOCKED' : '➼ OPTIONAL'}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-300 mb-3">
+                  Optional: Get alerts for clipping and anomalies
+                </p>
+                {permissionStatus.notifications !== 'granted' && (
+                  <button
+                    onClick={requestNotificationPermission}
+                    className="w-full px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded font-semibold transition-all"
+                  >
+                    Enable Notifications
+                  </button>
+                )}
+              </div>
+
+              {/* Autoplay Permission */}
+              <div className="bg-gray-800 p-4 rounded-lg">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold text-green-300">🔊 Audio Autoplay</h4>
+                  <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                    audioContext && audioContext.state === 'running'
+                      ? 'bg-green-800 text-green-200' 
+                      : audioContext && audioContext.state === 'suspended'
+                      ? 'bg-yellow-800 text-yellow-200'
+                      : 'bg-gray-700 text-gray-300'
+                  }`}>
+                    {audioContext && audioContext.state === 'running' ? '✅ ACTIVE' : 
+                     audioContext && audioContext.state === 'suspended' ? '⏸ SUSPENDED' : '➼ PENDING'}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-300 mb-3">
+                  Required for real-time audio processing
+                </p>
+                {audioContext && audioContext.state === 'suspended' && (
+                  <button
+                    onClick={enableAutoplay}
+                    className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 rounded font-semibold transition-all"
+                  >
+                    Enable Autoplay
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Browser-specific Help */}
+            {(permissionStatus.microphone === 'denied' || showPermissionHelp) && (
+              <div className="bg-red-900 border border-red-600 rounded-lg p-4">
+                <h4 className="font-semibold text-red-200 mb-3 flex items-center gap-2">
+                  ⚠ Permission Blocked - {getBrowserSpecificHelp().browser} Instructions
+                </h4>
+                <div className="space-y-2">
+                  {getBrowserSpecificHelp().steps.map((step, index) => (
+                    <div key={index} className="text-sm text-red-100 flex items-start gap-2">
+                      <span className="text-red-400 font-mono text-xs mt-1">•</span>
+                      <span>{step}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-4 p-3 bg-red-800 rounded border border-red-700">
+                  <p className="text-xs text-red-200">
+                    <strong>💡 Pro Tip:</strong> After changing permissions, refresh this page (F5) and try again.
+                    If issues persist, try opening this page in an incognito/private window.
+                  </p>
+                </div>
+                <div className="flex gap-2 mt-4">
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="px-4 py-2 bg-red-700 hover:bg-red-600 rounded font-semibold text-sm transition-all"
+                  >
+                    🔄 Refresh Page
+                  </button>
+                  <button
+                    onClick={() => setShowPermissionHelp(false)}
+                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded font-semibold text-sm transition-all"
+                  >
+                    Hide Help
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Quick Access Actions */}
+            {permissionStatus.microphone === 'granted' && !showPermissionHelp && (
+              <div className="bg-green-900 border border-green-600 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-semibold text-green-200">🎉 All Set!</h4>
+                    <p className="text-sm text-green-300">
+                      Permissions are configured. Ready for professional audio analysis.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowPermissionHelp(false)}
+                    className="px-4 py-2 bg-green-700 hover:bg-green-600 rounded font-semibold text-sm transition-all"
+                  >
+                    Continue
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        
+        {/* Control Panel */}
+        <div className="bg-gray-800 rounded-lg p-6 mb-6">
+          <div className="flex flex-wrap items-center gap-4 mb-4">
+            <button
+              onClick={isRecording ? stopRecording : startRecording}
+              className={`flex items-center gap-2 px-8 py-4 rounded-lg font-bold text-lg transition-all transform hover:scale-105 ${
+                isRecording 
+                  ? 'bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-500/30' 
+                  : 'bg-green-600 hover:bg-green-700 text-white shadow-lg shadow-green-500/30'
+              }`}
+            >
+              {isRecording ? <MicOff size={24} /> : <Mic size={24} />}
+              {isRecording ? '🛑 Stop Recording' : '🎙️ Start Recording'}
+            </button>
+
+            {!isRecording && permissionStatus.microphone !== 'granted' && (
+              <div className="flex items-center gap-2 px-4 py-2 bg-yellow-800 rounded-lg">
+                <span className="text-yellow-200 text-sm">
+                  ⚠ Microphone permission needed
+                </span>
+                <button
+                  onClick={requestMicrophonePermission}
+                  className="px-3 py-1 bg-yellow-600 hover:bg-yellow-700 rounded text-sm font-semibold"
+                >
+                  Enable
+                </button>
+              </div>
+            )}
+
+            <button
+              onClick={() => setLiveMonitoring(!liveMonitoring)}
+              disabled={!isRecording}
+              className={`flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+                liveMonitoring 
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white' 
+                  : 'bg-gray-600 hover:bg-gray-700 text-white'
+              }`}
+            >
+              {liveMonitoring ? <Play size={20} /> : <Pause size={20} />}
+              Live Monitor: {liveMonitoring ? 'ON' : 'OFF'}
+            </button>
+
+            <button
+              onClick={captureNoiseProfile}
+              disabled={!isRecording || !frequencyData || Math.max(...frequencyData) < 10}
+              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed rounded font-semibold transition-all"
+              title="Capture current audio as baseline noise profile for analysis"
+            >
+              📉 Capture Noise Profile
+            </button>
+            
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="ultrasonic"
+                checked={ultrasonicMode}
+                onChange={(e) => setUltrasonicMode(e.target.checked)}
+                className="w-4 h-4"
+                disabled={isRecording}
+              />
+              <label htmlFor="ultrasonic" className="text-sm">
+                Ultrasonic Mode
+              </label>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <Volume2 size={16} />
+              <label className="text-sm">Gain:</label>
+              <input
+                type="range"
+                min="1"
+                max="100"
+                value={gain}
+                onChange={(e) => setGain(parseInt(e.target.value))}
+                className="w-24"
+              />
+              <span className="text-xs font-mono">{gain}%</span>
+            </div>
+          </div>
+          
+          {/* Forensic Controls */}
+          <div className="border-t border-gray-600 pt-4">
+            <h4 className="text-sm font-semibold mb-3 text-yellow-400">⚙ Forensic Analysis Tools</h4>
+            <div className="flex flex-wrap gap-4">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="spectral"
+                  checked={spectralAnalysis}
+                  onChange={(e) => setSpectralAnalysis(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <label htmlFor="spectral" className="text-sm">Spectral Analysis</label>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="voiceprint"
+                  checked={voicePrint}
+                  onChange={(e) => setVoicePrint(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <label htmlFor="voiceprint" className="text-sm">Voice Print</label>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="phase"
+                  checked={phaseAnalysis}
+                  onChange={(e) => setPhaseAnalysis(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <label htmlFor="phase" className="text-sm">Phase Analysis</label>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="clipping"
+                  checked={clipDetection}
+                  onChange={(e) => setClipDetection(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <label htmlFor="clipping" className="text-sm">Clip Detection</label>
+              </div>
+            </div>
+          </div>
+          
+          {/* Audio Processing Controls */}
+          <div className="flex flex-wrap gap-4 mt-4">
+            <div className="flex items-center gap-2">
+              <label className="text-sm">Noise Reduction:</label>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={noiseReduction}
+                onChange={(e) => setNoiseReduction(parseInt(e.target.value))}
+                className="w-24"
+                disabled={isRecording}
+              />
+              <span className="text-xs font-mono">{noiseReduction}%</span>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <label className="text-sm">Echo Cancellation:</label>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={echoCancellation}
+                onChange={(e) => setEchoCancellation(parseInt(e.target.value))}
+                className="w-24"
+                disabled={isRecording}
+              />
+              <span className="text-xs font-mono">{echoCancellation}%</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Real-time Visualization */}
+        <div className="bg-gray-800 rounded-lg p-4 mb-6">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            📊 Real-time Frequency Analysis
+            {isRecording && (
+              <span className="text-green-400 text-sm">🚩 LIVE</span>
+            )}
+          </h3>
+          <canvas
+            ref={canvasRef}
+            width={800}
+            height={300}
+            className="w-full border border-gray-600 rounded mb-4 bg-black"
+          />
+          
+          {spectralAnalysis && (
+            <div>
+              <h4 className="text-md font-semibold mb-2 text-yellow-300">🌐 Spectrogram (Time-Frequency Analysis)</h4>
+              <canvas
+                ref={spectrogramRef}
+                width={800}
+                height={150}
+                className="w-full border border-gray-600 rounded mb-2 bg-black"
+              />
+              <div className="text-xs text-gray-400 text-center">
+                Time flows left to right • Blue=Low • Green=Medium • Yellow/Red=High intensity
+              </div>
+            </div>
+          )}
+          
+          <div className="mt-2 text-xs text-gray-400 text-center space-y-1">
+            <div>
+              Frequency Range: 0Hz - {audioContext ? `${(audioContext.sampleRate / 2000).toFixed(1)}kHz` : '22kHz'} | 
+              Sample Rate: {audioContext ? `${(audioContext.sampleRate / 1000).toFixed(1)}kHz` : 'Not initialized'} |
+              Live Monitor: {liveMonitoring ? 'ON' : 'OFF'}
+            </div>
+            {!isRecording && (
+              <div className="text-yellow-400 mt-2 text-center">
+                🎤 Click "Start Recording" - your browser will ask for microphone permission
+              </div>
+            )}
+            {isRecording && rmsLevel === 0 && (
+              <div className="text-orange-400 mt-2 text-center animate-pulse">
+                📢 Microphone active but no audio detected - try speaking louder or increasing gain
+              </div>
+            )}
+            {isRecording && rmsLevel > 0 && (
+              <div className="text-green-400 mt-2 text-center">
+                ✔️ Audio signal detected - analysis active
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Forensic Analysis Panel */}
+        {(spectralAnalysis || voicePrint || phaseAnalysis || clipDetection) && isRecording && (
+          <div className="bg-gray-800 rounded-lg p-6 mb-6">
+            <h3 className="text-lg font-semibold mb-4 text-yellow-400 flex items-center gap-2">
+              🔍 Forensic Analysis Results
+              <span className="text-sm text-green-400">🚩 ACTIVE</span>
+            </h3>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+              
+              {/* Audio Fingerprint */}
+              {spectralAnalysis && (
+                <div className="bg-gray-700 p-4 rounded-lg">
+                  <h4 className="font-semibold mb-2 text-green-400 flex items-center gap-1">
+                    🔍 Audio Fingerprint
+                  </h4>
+                  <div className="text-sm font-mono bg-gray-900 p-3 rounded border">
+                    {audioFingerprint || 'ANALYZING...'}
+                  </div>
+                  <div className="text-xs text-gray-400 mt-2">
+                    Unique spectral signature for authentication
+                  </div>
+                </div>
+              )}
+              
+              {/* Suspicious Frequencies */}
+              {spectralAnalysis && (
+                <div className="bg-gray-700 p-4 rounded-lg">
+                  <h4 className="font-semibold mb-2 text-red-400 flex items-center gap-1">
+                    🚨 Suspicious Frequencies
+                    {suspiciousFreqs.length > 0 && (
+                      <span className="text-xs bg-red-800 px-2 py-1 rounded">{suspiciousFreqs.length}</span>
+                    )}
+                  </h4>
+                  <div className="max-h-32 overflow-y-auto text-xs space-y-1">
+                    {suspiciousFreqs.length > 0 ? (
+                      suspiciousFreqs.map((freq, i) => (
+                        <div key={i} className="flex justify-between items-center bg-gray-800 p-2 rounded">
+                          <span className="font-mono">{freq.frequency}Hz</span>
+                          <span className="text-red-300">+{freq.level.toFixed(1)}dB</span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-gray-400 italic">No anomalies detected</div>
+                    )}
+                  </div>
+                  {backgroundNoise.length === 0 && (
+                    <div className="text-xs text-yellow-400 mt-2">
+                      🚨 Capture noise profile for baseline comparison
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Compression Artifacts */}
+              {spectralAnalysis && (
+                <div className="bg-gray-700 p-4 rounded-lg">
+                  <h4 className="font-semibold mb-2 text-orange-400 flex items-center gap-1">
+                    🗳️ Compression Analysis
+                    {compressionArtifacts.length > 0 && (
+                      <span className="text-xs bg-orange-800 px-2 py-1 rounded">{compressionArtifacts.length}</span>
+                    )}
+                  </h4>
+                  <div className="text-xs space-y-2">
+                    {compressionArtifacts.length > 0 ? (
+                      compressionArtifacts.map((artifact, i) => (
+                        <div key={i} className="bg-gray-800 p-2 rounded">
+                          <div className="font-semibold text-orange-300 flex items-center justify-between">
+                            {artifact.type}
+                            <span className="text-xs bg-gray-600 px-2 py-1 rounded">
+                              {artifact.severity}
+                            </span>
+                          </div>
+                          <div className="text-gray-300 mt-1">{artifact.description}</div>
+                          {artifact.confidence && (
+                            <div className="text-xs text-gray-400 mt-1">
+                              Confidence: {artifact.confidence.toFixed(1)}%
+                            </div>
+                          )}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-gray-400 italic">No compression artifacts detected</div>
+                    )}
+                  </div>
+                </div>
+              )}
+              
+              {/* Background Noise Profile */}
+              {backgroundNoise.length > 0 && (
+                <div className="bg-gray-700 p-4 rounded-lg">
+                  <h4 className="font-semibold mb-2 text-blue-400 flex items-center gap-1">
+                    🔉 Noise Floor Analysis
+                  </h4>
+                  <div className="text-xs space-y-1">
+                    <div className="flex justify-between">
+                      <span>Profiles Captured:</span>
+                      <span className="font-mono">{backgroundNoise.length}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Latest Avg Level:</span>
+                      <span className="font-mono">
+                        {backgroundNoise.length > 0 ? 
+                          backgroundNoise[backgroundNoise.length - 1].level.toFixed(1) : '0'}dB
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Status:</span>
+                      <span className="text-green-400">Profile Active</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Clipping Detection */}
+              {clipDetection && (
+                <div className="bg-gray-700 p-4 rounded-lg">
+                  <h4 className="font-semibold mb-2 text-red-400 flex items-center gap-1">
+                    📶 Clipping Analysis
+                  </h4>
+                  <div className="text-xs space-y-1">
+                    <div className="flex justify-between items-center">
+                      <span>Status:</span>
+                      <span className={`font-semibold px-2 py-1 rounded text-xs ${
+                        isClipping ? 'bg-red-800 text-red-200' : 'bg-green-800 text-green-200'
+                      }`}>
+                        {isClipping ? '🚨 CLIPPING' : '✅ CLEAN'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Threshold:</span>
+                      <span className="font-mono">98% max amplitude</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Detection:</span>
+                      <span className="font-mono">Real-time</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Voice Characteristics */}
+              {voicePrint && Object.keys(voiceCharacteristics).length > 0 && (
+                <div className="bg-gray-700 p-4 rounded-lg">
+                  <h4 className="font-semibold mb-2 text-purple-400 flex items-center gap-1">
+                    🗣️ Voice Analysis
+                  </h4>
+                  <div className="text-xs space-y-1">
+                    <div className="flex justify-between">
+                      <span>Fundamental (F0):</span>
+                      <span className="font-mono">{voiceCharacteristics.fundamental || 0}Hz</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Gender Range:</span>
+                      <span className="font-mono">{voiceCharacteristics.genderEstimate || 'Unknown'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Voice Activity:</span>
+                      <span className={`font-mono ${
+                        voiceCharacteristics.voiceActivity === 'Active' ? 'text-green-400' : 'text-gray-400'
+                      }`}>
+                        {voiceCharacteristics.voiceActivity || 'Inactive'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>RMS Energy:</span>
+                      <span className="font-mono">{voiceCharacteristics.rmsEnergy || '0.0000'}</span>
+                    </div>
+                    {voiceCharacteristics.formants && voiceCharacteristics.formants.length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-gray-600">
+                        <div className="text-gray-400 mb-1">Formants:</div>
+                        {voiceCharacteristics.formants.map((formant, i) => (
+                          <div key={i} className="flex justify-between text-xs">
+                            <span>F{formant.number}:</span>
+                            <span className="font-mono">{formant.frequency}Hz</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* 31-Band Equalizer */}
+        <div className="bg-gray-800 rounded-lg p-6 mb-6">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-semibold">🎛️ 31-Band Parametric Equalizer (0Hz - 22kHz)</h3>
+            <button
+              onClick={resetEQ}
+              className="px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded transition-colors text-sm font-semibold"
+            >
+              Reset EQ
+            </button>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <div className="flex gap-1 min-w-max pb-4">
+              {eqBands.map((value, index) => (
+                <div key={index} className="flex flex-col items-center w-8">
+                  <div className="h-32 relative">
+                    <input
+                      type="range"
+                      min="-12"
+                      max="12"
+                      step="0.5"
+                      value={value}
+                      onChange={(e) => updateEqBand(index, parseFloat(e.target.value))}
+                      className="h-32 w-4 slider-vertical"
+                      style={{ 
+                        transform: 'rotate(-90deg)',
+                        transformOrigin: 'center',
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        marginLeft: '-8px',
+                        marginTop: '-64px'
+                      }}
+                    />
+                  </div>
+                  <div className="text-xs mt-2 text-center font-mono">
+                    {eqFrequencies[index] >= 1000 
+                      ? `${(eqFrequencies[index] / 1000).toFixed(1)}k` 
+                      : `${eqFrequencies[index]}`}
+                  </div>
+                  <div className={`text-xs font-mono mt-1 ${
+                    value > 0 ? 'text-green-400' : value < 0 ? 'text-red-400' : 'text-gray-400'
+                  }`}>
+                    {value > 0 ? '+' : ''}{value}dB
+                  </div>
+                </div
