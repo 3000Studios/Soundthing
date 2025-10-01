@@ -19,6 +19,13 @@ const App = () => {
   const [accelerometerData, setAccelerometerData] = useState({ x: 0, y: 0, z: 0, magnitude: 0 })
   const [gyroscopeData, setGyroscopeData] = useState({ x: 0, y: 0, z: 0, magnitude: 0 })
   const [magnetometerData, setMagnetometerData] = useState({ x: 0, y: 0, z: 0, magnitude: 0 })
+  const [orientationData, setOrientationData] = useState({ alpha: 0, beta: 0, gamma: 0 })
+  const [ambientLightData, setAmbientLightData] = useState(0)
+  const [proximityData, setProximityData] = useState(0)
+  const [temperatureData, setTemperatureData] = useState(0)
+  const [pressureData, setPressureData] = useState(0)
+  const [humidityData, setHumidityData] = useState(0)
+  const [sensorHistory, setSensorHistory] = useState([])
   const [cpuData, setCpuData] = useState({ temp: 0, usage: 0, cores: [] })
   const [gpuData, setGpuData] = useState({ temp: 0, usage: 0, memory: 0 })
   const [batteryData, setBatteryData] = useState({ level: 0, charging: false, temp: 0 })
@@ -96,10 +103,31 @@ const App = () => {
       const magZ = Math.sin(now / 3000) * 30
       setMagnetometerData({ x: magX, y: magY, z: magZ, magnitude: Math.sqrt(magX*magX + magY*magY + magZ*magZ) })
 
+      setOrientationData({ 
+        alpha: Math.sin(now / 2000) * 180, 
+        beta: Math.cos(now / 2500) * 90, 
+        gamma: Math.sin(now / 3000) * 90 
+      })
+
       setCpuData({ temp: 45 + Math.random() * 30, usage: Math.random() * 100, cores: Array.from({ length: 8 }, () => Math.random() * 100) })
       setGpuData({ temp: 50 + Math.random() * 40, usage: Math.random() * 100, memory: Math.random() * 16 })
       setBatteryData({ level: 50 + Math.sin(now / 10000) * 30, charging: Math.random() > 0.5, temp: 30 + Math.random() * 10 })
       setNetworkData({ wifiStrength: 50 + Math.random() * 50, bluetoothDevices: Math.floor(Math.random() * 5) })
+      
+      setTemperatureData(20 + Math.random() * 10)
+      setPressureData(1000 + Math.random() * 50)
+      setHumidityData(30 + Math.random() * 40)
+      setAmbientLightData(100 + Math.random() * 900)
+      setProximityData(Math.random() * 100)
+      
+      setSensorHistory(prev => [...prev.slice(-99), {
+        timestamp: Date.now(),
+        magnetometer: Math.sqrt(magX*magX + magY*magY + magZ*magZ),
+        accelerometer: Math.sqrt(accX*accX + accY*accY + accZ*accZ),
+        audio: Math.random() * 100,
+        cpu: 45 + Math.random() * 30,
+        gpu: 50 + Math.random() * 40
+      }])
     }, 1000)
   }
 
@@ -452,6 +480,14 @@ const App = () => {
           accelerometerData={accelerometerData}
           gyroscopeData={gyroscopeData}
           magnetometerData={magnetometerData}
+          orientationData={orientationData}
+          ambientLightData={ambientLightData}
+          proximityData={proximityData}
+          temperatureData={temperatureData}
+          pressureData={pressureData}
+          humidityData={humidityData}
+          batteryData={batteryData}
+          sensorHistory={sensorHistory}
         />
       )}
 
