@@ -1,0 +1,18 @@
+# copilot-setup-steps.yml
+
+# This script runs inside Copilot's ephemeral environment before it attempts to work.
+# It ensures all dependencies are ready to go.
+
+- name: Set up Go
+  uses: actions/setup-go@v5
+  with:
+    go-version-file: 'go.mod'
+- name: Setup Node.js
+  uses: actions/setup-node@v4
+  with:
+    node-version: 20
+    cache: 'npm'
+- name: Install Backend Dependencies
+  run: go mod download
+- name: Install Frontend Dependencies
+  run: npm install --prefix frontend
